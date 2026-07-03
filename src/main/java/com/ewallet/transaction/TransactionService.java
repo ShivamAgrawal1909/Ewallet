@@ -4,6 +4,8 @@ import com.ewallet.user.User;
 import com.ewallet.user.UserRepository;
 import com.ewallet.wallet.WalletRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -21,7 +23,7 @@ public class TransactionService {
     @Autowired
     private UserRepository userRepository;
 
-  
+    @CacheEvict(value = {"transactions", "summary"}, key = "#fromUserId")
     public Transaction saveTransaction(Long fromUserId,
                                        Long toUserId,
                                        Double amount,
@@ -47,7 +49,7 @@ public class TransactionService {
         return sent;
     }
 
-  
+    @Cacheable(value = "transactions", key = "#userId")
     public List<TransactionResponse> getMyTransactionResponses(Long userId) {
 
         List<Transaction> transactions = getMyTransactions(userId);
@@ -93,6 +95,7 @@ public class TransactionService {
         return response;
     }
 
+    @Cacheable(value = "summary", key = "#userId")
     public TransactionSummary getSummary(Long userId) {
 
         double totalAdded = transactionRepository.sumTotalAddedByUserId(userId);
