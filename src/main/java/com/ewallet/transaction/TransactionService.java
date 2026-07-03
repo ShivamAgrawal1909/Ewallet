@@ -6,7 +6,8 @@ import com.ewallet.wallet.WalletRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class TransactionService {
@@ -20,7 +21,7 @@ public class TransactionService {
     @Autowired
     private UserRepository userRepository;
 
-    // Transaction save
+    
     public Transaction saveTransaction(Long fromUserId,
                                        Long toUserId,
                                        Double amount,
@@ -28,7 +29,6 @@ public class TransactionService {
                                        String status) {
 
         Transaction transaction = new Transaction();
-
         transaction.setFromUserId(fromUserId);
         transaction.setToUserId(toUserId);
         transaction.setAmount(amount);
@@ -38,73 +38,71 @@ public class TransactionService {
         return transactionRepository.save(transaction);
     }
 
-    // User transactions
+  
     public List<Transaction> getMyTransactions(Long userId) {
 
-        List<Transaction> sent =
-                transactionRepository.findByFromUserId(userId);
-
-        List<Transaction> received =
-                transactionRepository.findByToUserId(userId);
+        List<Transaction> sent = transactionRepository.findByFromUserId(userId);
+        List<Transaction> received = transactionRepository.findByToUserId(userId);
 
         sent.addAll(received);
-
         return sent;
     }
 
-    // User transactions with sender/receiver details
+    // Optimized: fetch all users in one DB call (fixes N+1 problem)
     public List<TransactionResponse> getMyTransactionResponses(Long userId) {
 
         List<Transaction> transactions = getMyTransactions(userId);
 
+      
+        Set<Long> userIds = new HashSet<>();
+        for (Transaction t : transactions) {
+            if (t.getFromUserId() != null) userIds.add(t.getFromUserId());
+            if (t.getToUserId() != null) userIds.add(t.getToUserId());
+        }
+
+      
+        Map<Long, User> userMap = userRepository.findAllById(userIds)
+                .stream()
+                .collect(Collectors.toMap(User::getId, user -> user));
+
         return transactions.stream()
-                .map(this::toTransactionResponse)
+                .map(t -> buildResponse(t, userMap))
                 .toList();
     }
 
-    private TransactionResponse toTransactionResponse(Transaction transaction) {
+  
+    private TransactionResponse buildResponse(Transaction t, Map<Long, User> userMap) {
 
         TransactionResponse response = new TransactionResponse();
 
-        response.setId(transaction.getId());
+        response.setId(t.getId());
+        response.setFromUserId(t.getFromUserId());
+        response.setToUserId(t.getToUserId());
+        response.setAmount(t.getAmount());
+        response.setType(t.getType());
+        response.setStatus(t.getStatus());
+        response.setCreatedAt(t.getCreatedAt());
 
-        response.setFromUserId(transaction.getFromUserId());
-        response.setToUserId(transaction.getToUserId());
-
-        response.setAmount(transaction.getAmount());
-        response.setType(transaction.getType());
-        response.setStatus(transaction.getStatus());
-        response.setCreatedAt(transaction.getCreatedAt());
-
-        if (transaction.getFromUserId() != null) {
-            User sender = userRepository.findById(transaction.getFromUserId())
-                    .orElse(null);
-
-            if (sender != null) {
-                response.setSenderName(sender.getName());
-                response.setSenderEmail(sender.getEmail());
-            }
+        User sender = userMap.get(t.getFromUserId());
+        if (sender != null) {
+            response.setSenderName(sender.getName());
+            response.setSenderEmail(sender.getEmail());
         }
 
-        if (transaction.getToUserId() != null) {
-            User receiver = userRepository.findById(transaction.getToUserId())
-                    .orElse(null);
-
-            if (receiver != null) {
-                response.setReceiverName(receiver.getName());
-                response.setReceiverEmail(receiver.getEmail());
-            }
+        User receiver = userMap.get(t.getToUserId());
+        if (receiver != null) {
+            response.setReceiverName(receiver.getName());
+            response.setReceiverEmail(receiver.getEmail());
         }
 
         return response;
     }
 
-    // FAST & OPTIMIZED: Dashboard summary using database-level aggregations
+ 
     public TransactionSummary getSummary(Long userId) {
 
         TransactionSummary summary = new TransactionSummary();
 
-        // 1. Database se seedhe calculation ho rhi hai (Memory load nahi hogi)
         double totalAdded = transactionRepository.sumTotalAddedByUserId(userId);
         double totalSent = transactionRepository.sumTotalSentByUserId(userId);
         double totalReceived = transactionRepository.sumTotalReceivedByUserId(userId);
@@ -112,8 +110,7 @@ public class TransactionService {
 
         double currentBalance = walletRepository
                 .findByUserId(userId)
-                .orElseThrow(() ->
-                        new RuntimeException("Wallet not found"))
+                .orElseThrow(() -> new RuntimeException("Wallet not found"))
                 .getBalance();
 
         summary.setCurrentBalance(currentBalance);
