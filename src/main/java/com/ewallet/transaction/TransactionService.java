@@ -4,6 +4,8 @@ import com.ewallet.user.User;
 import com.ewallet.user.UserRepository;
 import com.ewallet.wallet.WalletRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -21,7 +23,7 @@ public class TransactionService {
     @Autowired
     private UserRepository userRepository;
 
-    
+    @CacheEvict(value = {"transactions", "summary"}, key = "#fromUserId")
     public Transaction saveTransaction(Long fromUserId,
                                        Long toUserId,
                                        Double amount,
@@ -38,7 +40,6 @@ public class TransactionService {
         return transactionRepository.save(transaction);
     }
 
-  
     public List<Transaction> getMyTransactions(Long userId) {
 
         List<Transaction> sent = transactionRepository.findByFromUserId(userId);
@@ -48,19 +49,17 @@ public class TransactionService {
         return sent;
     }
 
-    // Optimized: fetch all users in one DB call (fixes N+1 problem)
+    @Cacheable(value = "transactions", key = "#userId")
     public List<TransactionResponse> getMyTransactionResponses(Long userId) {
 
         List<Transaction> transactions = getMyTransactions(userId);
 
-      
         Set<Long> userIds = new HashSet<>();
         for (Transaction t : transactions) {
             if (t.getFromUserId() != null) userIds.add(t.getFromUserId());
             if (t.getToUserId() != null) userIds.add(t.getToUserId());
         }
 
-      
         Map<Long, User> userMap = userRepository.findAllById(userIds)
                 .stream()
                 .collect(Collectors.toMap(User::getId, user -> user));
@@ -70,11 +69,9 @@ public class TransactionService {
                 .toList();
     }
 
-  
     private TransactionResponse buildResponse(Transaction t, Map<Long, User> userMap) {
 
         TransactionResponse response = new TransactionResponse();
-
         response.setId(t.getId());
         response.setFromUserId(t.getFromUserId());
         response.setToUserId(t.getToUserId());
@@ -98,10 +95,8 @@ public class TransactionService {
         return response;
     }
 
- 
+    @Cacheable(value = "summary", key = "#userId")
     public TransactionSummary getSummary(Long userId) {
-
-        TransactionSummary summary = new TransactionSummary();
 
         double totalAdded = transactionRepository.sumTotalAddedByUserId(userId);
         double totalSent = transactionRepository.sumTotalSentByUserId(userId);
@@ -113,6 +108,7 @@ public class TransactionService {
                 .orElseThrow(() -> new RuntimeException("Wallet not found"))
                 .getBalance();
 
+        TransactionSummary summary = new TransactionSummary();
         summary.setCurrentBalance(currentBalance);
         summary.setTotalAdded(totalAdded);
         summary.setTotalSent(totalSent);
