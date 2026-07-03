@@ -1,10 +1,10 @@
 package com.ewallet.transaction;
 
 import lombok.Data;
+import java.io.Serializable;
 
 @Data
-public class TransactionSummary {
-
+public class TransactionSummary implements Serializable {
     private Double currentBalance;
     private Double totalAdded;
     private Double totalSent;
